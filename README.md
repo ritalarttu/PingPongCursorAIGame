@@ -2,14 +2,22 @@
 
 A modern, React-based implementation of the classic Ping Pong game, developed with the assistance of Cursor AI.
 
-**Version 2.3**
+**Version 2.4**
 
 ## 🎮 Game Features
 
 - Smooth and responsive paddle controls
 - Real-time ball physics and movement
 - Score tracking system
-- Player vs Computer gameplay
+- Multiple game modes:
+  - Single Player vs AI (with adjustable difficulty)
+  - Local Multiplayer
+  - AI Showmatch
+- Power-up system with various effects:
+  - Giant Paddle (doubles paddle size)
+  - Speed Up (50% faster movement)
+  - Slow Opponent (reduces opponent's speed)
+  - Shrink Opponent (halves opponent's paddle)
 - Clean and minimalist user interface
 - Adjustable game speed and difficulty
 - Keyboard controls for intuitive gameplay
@@ -26,7 +34,8 @@ A modern, React-based implementation of the classic Ping Pong game, developed wi
 1. Use the up and down arrow keys to move your paddle
 2. Prevent the ball from passing your paddle
 3. Try to score points by getting the ball past the computer's paddle
-4. First player to reach the winning score wins the game
+4. Collect power-ups to gain advantages
+5. First player to reach the winning score wins the game
 
 ## 🤖 AI Development Note
 
@@ -47,5 +56,6 @@ The game includes various customizable features such as:
 - Ball velocity
 - AI difficulty level
 - Winning score threshold
+- Power-up duration and effects
 
 Enjoy the game and may the best player win! 🏓

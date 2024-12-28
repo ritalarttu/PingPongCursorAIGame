@@ -102,21 +102,29 @@ const calculateBounceAngle = (paddleY, ballY, paddleHeight) => {
   // Calculate relative intersection (-1 to 1)
   const relativeIntersectY = (paddleY + paddleHeight/2 - ballY) / (paddleHeight/2);
   
-  // Add some randomness to the bounce
-  const randomFactor = (Math.random() * 0.4) - 0.2; // Random value between -0.2 and 0.2
+  // Calculate bounce angle (more pronounced angle based on hit position)
+  // Using 75 degrees (5π/12) as max angle for more dynamic gameplay
+  const maxAngle = (5 * Math.PI) / 12;
+  const bounceAngle = relativeIntersectY * maxAngle;
   
-  // Calculate bounce angle
-  const bounceAngle = relativeIntersectY * (MAX_BOUNCE_ANGLE - MIN_BOUNCE_ANGLE) / 2;
-  
-  // Return y component with added randomness
-  return -bounceAngle + randomFactor;
+  // Return y component (negative because canvas Y is inverted)
+  return -bounceAngle;
+};
+
+// Add these constants before GAME_MODES
+const POWER_UPS = {
+  SPEED_UP: { name: 'Speed Up', color: '#ff4444', duration: 5000 },
+  GIANT_PADDLE: { name: 'Giant Paddle', color: '#44ff44', duration: 5000 },
+  SLOW_MOTION: { name: 'Slow Opponent', color: '#4444ff', duration: 5000 },
+  TINY_OPPONENT: { name: 'Shrink Opponent', color: '#ff44ff', duration: 5000 }
 };
 
 // Move these constants outside the component
 const GAME_MODES = {
   SINGLE: 'single',
   LOCAL_MULTI: 'local_multi',
-  AI_SHOWMATCH: 'ai_showmatch'
+  AI_SHOWMATCH: 'ai_showmatch',
+  POWER_UP: 'power_up' // Add new game mode
 };
 
 const AI_DIFFICULTIES = {
@@ -317,6 +325,27 @@ const staticStyles = {
     opacity: 0.3,
     width: '100%',
   },
+  powerUp: {
+    position: 'absolute',
+    width: '30px',
+    height: '30px',
+    borderRadius: '50%',
+    transform: 'translate(-50%, -50%)',
+    animation: 'pulse 1s infinite',
+    border: '2px solid white',
+    boxShadow: '0 0 10px rgba(255,255,255,0.5)',
+    zIndex: 1,
+  },
+  powerUpIndicator: {
+    position: 'absolute',
+    top: '60px',
+    padding: '5px 10px',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    color: '#fff',
+    borderRadius: '4px',
+    fontSize: '14px',
+    zIndex: 2,
+  },
 };
 
 // Add this function before the App component
@@ -420,6 +449,8 @@ export default function App() {
   const [showCredits, setShowCredits] = useState(false);
   const [fireworks, setFireworks] = useState([]);
   const fireworksTimeoutRef = useRef(null);
+  const [activePowerUps, setActivePowerUps] = useState({ player: [], ai: [] });
+  const [visiblePowerUp, setVisiblePowerUp] = useState(null);
 
   // Move this inside the component, after state declarations
   const styles = {
@@ -494,7 +525,11 @@ export default function App() {
   useEffect(() => {
     if (gameStarted && !isPaused && !gameOver && !pointCooldown) {
       gameLoopRef.current = setInterval(() => {
-        // AI movements
+        // Get current power-up effects
+        const playerEffects = getPowerUpEffects('player');
+        const aiEffects = getPowerUpEffects('ai');
+
+        // AI movements with power-up effects
         if (gameMode === GAME_MODES.AI_SHOWMATCH) {
           // Left AI movement
           setPlayerPosition(current => {
@@ -548,43 +583,41 @@ export default function App() {
             return current;
           });
         } else {
-          // Player 1 movement (W/S keys)
+          // Player 1 movement (W/S keys) with power-up effects
           if (keysPressed.current.has('w')) {
             setPlayerPosition(prev => 
-              Math.max(dimensions.current.PADDLE_HEIGHT/2, 
-                prev - dimensions.current.PADDLE_SPEED)
+              Math.max(dimensions.current.PADDLE_HEIGHT * playerEffects.paddleHeight/2, 
+                prev - dimensions.current.PADDLE_SPEED * playerEffects.speed)
             );
           }
           if (keysPressed.current.has('s')) {
             setPlayerPosition(prev => 
-              Math.min(dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT/2, 
-                prev + dimensions.current.PADDLE_SPEED)
+              Math.min(dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT * playerEffects.paddleHeight/2, 
+                prev + dimensions.current.PADDLE_SPEED * playerEffects.speed)
             );
           }
 
-          // Player 2 / AI movement
+          // Player 2 / AI movement with power-up effects
           if (gameMode === GAME_MODES.LOCAL_MULTI) {
-            // Player 2 movement (Arrow keys)
             if (keysPressed.current.has('arrowup')) {
               setAiPosition(prev => 
-                Math.max(dimensions.current.PADDLE_HEIGHT/2, 
-                  prev - dimensions.current.PADDLE_SPEED)
+                Math.max(dimensions.current.PADDLE_HEIGHT * aiEffects.paddleHeight/2, 
+                  prev - dimensions.current.PADDLE_SPEED * aiEffects.speed)
               );
             }
             if (keysPressed.current.has('arrowdown')) {
               setAiPosition(prev => 
-                Math.min(dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT/2, 
-                  prev + dimensions.current.PADDLE_SPEED)
+                Math.min(dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT * aiEffects.paddleHeight/2, 
+                  prev + dimensions.current.PADDLE_SPEED * aiEffects.speed)
               );
             }
           } else {
-            // AI movement with improved prediction
+            // AI movement with power-up effects
             setAiPosition(current => {
               const ballY = ballPosition.y;
               let targetY = ballY;
               
               if (aiDifficulty.predictionFactor > 0 && ballDirection.x > 0) {
-                // Use the new prediction function for hard AI
                 targetY = predictBallPosition(
                   ballPosition,
                   ballDirection,
@@ -594,12 +627,12 @@ export default function App() {
               }
 
               const diff = targetY - current;
-              const moveAmount = dimensions.current.BALL_SPEED * aiDifficulty.reactionSpeed;
+              const moveAmount = dimensions.current.BALL_SPEED * aiDifficulty.reactionSpeed * aiEffects.speed;
 
-              if (Math.abs(diff) > dimensions.current.PADDLE_HEIGHT / 4) {
+              if (Math.abs(diff) > dimensions.current.PADDLE_HEIGHT * aiEffects.paddleHeight / 4) {
                 return diff > 0 
-                  ? Math.min(current + moveAmount, dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT/2)
-                  : Math.max(current - moveAmount, dimensions.current.PADDLE_HEIGHT/2);
+                  ? Math.min(current + moveAmount, dimensions.current.GAME_HEIGHT - dimensions.current.PADDLE_HEIGHT * aiEffects.paddleHeight/2)
+                  : Math.max(current - moveAmount, dimensions.current.PADDLE_HEIGHT * aiEffects.paddleHeight/2);
               }
               return current;
             });
@@ -609,6 +642,11 @@ export default function App() {
         setBallPosition(prevBall => {
           const nextX = prevBall.x + (dimensions.current.BALL_SPEED * speedMultiplier) * ballDirection.x;
           const nextY = prevBall.y + (dimensions.current.BALL_SPEED * speedMultiplier) * ballDirection.y;
+
+          // Check for power-up collision
+          if (gameMode === GAME_MODES.POWER_UP) {
+            checkPowerUpCollision(nextX, nextY);
+          }
 
           // Check for scoring
           if (nextX <= 0) {
@@ -689,7 +727,7 @@ export default function App() {
         }
       };
     }
-  }, [gameStarted, isPaused, gameOver, ballDirection, playerPosition, aiPosition, ballPosition, speedMultiplier, gameMode, winningScore, aiDifficulty, pointCooldown]);
+  }, [gameStarted, isPaused, gameOver, ballDirection, playerPosition, aiPosition, ballPosition, speedMultiplier, gameMode, winningScore, aiDifficulty, pointCooldown, activePowerUps]);
 
   // Handle keyboard controls
   useEffect(() => {
@@ -752,6 +790,95 @@ export default function App() {
     }, 2000);
   };
 
+  // Add power-up spawn timer
+  useEffect(() => {
+    if (gameStarted && gameMode === GAME_MODES.POWER_UP && !gameOver && !isPaused) {
+      const spawnInterval = setInterval(() => {
+        if (!visiblePowerUp) {
+          const powerUpTypes = Object.keys(POWER_UPS);
+          const randomType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+          setVisiblePowerUp({
+            type: randomType,
+            x: dimensions.current.GAME_WIDTH * (0.25 + Math.random() * 0.5),
+            y: dimensions.current.GAME_HEIGHT * (0.25 + Math.random() * 0.5)
+          });
+        }
+      }, 5000);
+
+      return () => clearInterval(spawnInterval);
+    }
+  }, [gameStarted, gameMode, gameOver, isPaused, visiblePowerUp]);
+
+  // Add power-up collection check to ball movement
+  const checkPowerUpCollision = (ballX, ballY) => {
+    if (visiblePowerUp && 
+        Math.abs(ballX - visiblePowerUp.x) < dimensions.current.BALL_SIZE * 2 &&
+        Math.abs(ballY - visiblePowerUp.y) < dimensions.current.BALL_SIZE * 2) {
+      const collector = ballDirection.x > 0 ? 'player' : 'ai';
+      activatePowerUp(visiblePowerUp.type, collector);
+      setVisiblePowerUp(null);
+    }
+  };
+
+  const activatePowerUp = (type, collector) => {
+    const opponent = collector === 'player' ? 'ai' : 'player';
+    const powerUp = {
+      type,
+      endTime: Date.now() + POWER_UPS[type].duration,
+      id: Date.now()
+    };
+
+    setActivePowerUps(prev => ({
+      ...prev,
+      [collector]: [...prev[collector], powerUp]
+    }));
+
+    // Remove power-up after duration
+    setTimeout(() => {
+      setActivePowerUps(prev => ({
+        ...prev,
+        [collector]: prev[collector].filter(p => p.id !== powerUp.id)
+      }));
+    }, POWER_UPS[type].duration);
+  };
+
+  // Add power-up effects helper
+  const getPowerUpEffects = (side) => {
+    const effects = { paddleHeight: 1, speed: 1 };
+    const opponent = side === 'player' ? 'ai' : 'player';
+    
+    // Apply own power-ups
+    activePowerUps[side].forEach(powerUp => {
+      switch (powerUp.type) {
+        case 'GIANT_PADDLE':
+          effects.paddleHeight *= 2;
+          break;
+        case 'SPEED_UP':
+          effects.speed *= 1.5;
+          break;
+        case 'SLOW_MOTION':
+          // Now affects opponent instead of self
+          break;
+        case 'TINY_OPPONENT':
+          break;
+      }
+    });
+
+    // Apply opponent's effects
+    activePowerUps[opponent].forEach(powerUp => {
+      switch (powerUp.type) {
+        case 'SLOW_MOTION':
+          effects.speed *= 0.5; // Slow down if opponent has Slow Motion
+          break;
+        case 'TINY_OPPONENT':
+          effects.paddleHeight *= 0.5; // Shrink if opponent has Tiny Opponent
+          break;
+      }
+    });
+
+    return effects;
+  };
+
   return (
     <div style={styles.container}>
       <h1 style={styles.title}>Pong Game</h1>
@@ -775,11 +902,9 @@ export default function App() {
               </button>
               <button
                 style={styles.startButton}
-                onClick={() => {
-                  startGame(GAME_LENGTHS.LONG.points, GAME_MODES.AI_SHOWMATCH);
-                }}
+                onClick={() => setMenuState('ai_showmatch_select')}
               >
-                Watch AI Showmatch
+                AI Showmatch
               </button>
               
               <div style={styles.menuDivider} />
@@ -795,19 +920,26 @@ export default function App() {
 
           {menuState === 'mode_select' && (
             <>
-              <h3 style={styles.subtitle}>Select AI Difficulty</h3>
-              {Object.entries(AI_DIFFICULTIES).map(([key, difficulty]) => (
-                <button
-                  key={key}
-                  style={styles.startButton}
-                  onClick={() => {
-                    setAiDifficulty(difficulty);
-                    setMenuState('single_length_select');
-                  }}
-                >
-                  {difficulty.name}
-                </button>
-              ))}
+              <h2>Single Player vs AI</h2>
+              <p style={{ color: '#fff', marginBottom: '20px' }}>
+                Choose your game style:
+              </p>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  setMenuState('ai_difficulty_classic');
+                }}
+              >
+                Classic Mode
+              </button>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  setMenuState('ai_difficulty_powerup');
+                }}
+              >
+                Power-up Mode ✨
+              </button>
               <button
                 style={{...styles.startButton, backgroundColor: '#f44336'}}
                 onClick={() => setMenuState('main')}
@@ -817,7 +949,107 @@ export default function App() {
             </>
           )}
 
-          {menuState === 'single_length_select' && (
+          {menuState === 'local_multi_select' && (
+            <>
+              <h2>Local Multiplayer</h2>
+              <p style={{ color: '#fff', marginBottom: '20px' }}>
+                Choose your game style:
+              </p>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  setMenuState('local_multi_classic');
+                }}
+              >
+                Classic Mode
+              </button>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  setMenuState('local_multi_powerup');
+                }}
+              >
+                Power-up Mode ✨
+              </button>
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('main')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {/* Classic AI difficulty selection */}
+          {menuState === 'ai_difficulty_classic' && (
+            <>
+              <h3 style={styles.subtitle}>Select AI Difficulty</h3>
+              {Object.entries(AI_DIFFICULTIES).map(([key, difficulty]) => (
+                <button
+                  key={key}
+                  style={styles.startButton}
+                  onClick={() => {
+                    setAiDifficulty(difficulty);
+                    setMenuState('single_length_classic');
+                  }}
+                >
+                  {difficulty.name}
+                </button>
+              ))}
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('mode_select')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {/* Power-up AI difficulty selection */}
+          {menuState === 'ai_difficulty_powerup' && (
+            <>
+              <h3 style={styles.subtitle}>Select AI Difficulty</h3>
+              <div style={{ color: '#fff', marginBottom: '20px', textAlign: 'left' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#44ff44', fontWeight: 'bold' }}>● Giant Paddle</span>
+                  <br/>Makes your paddle twice as large
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 'bold' }}>● Speed Up</span>
+                  <br/>Increases your paddle movement speed by 50%
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#4444ff', fontWeight: 'bold' }}>● Slow Opponent</span>
+                  <br/>Reduces opponent's paddle speed by 50%
+                </div>
+                <div style={{ marginBottom: '20px' }}>
+                  <span style={{ color: '#ff44ff', fontWeight: 'bold' }}>● Shrink Opponent</span>
+                  <br/>Reduces opponent's paddle size by half
+                </div>
+              </div>
+              {Object.entries(AI_DIFFICULTIES).map(([key, difficulty]) => (
+                <button
+                  key={key}
+                  style={styles.startButton}
+                  onClick={() => {
+                    setAiDifficulty(difficulty);
+                    setMenuState('single_length_powerup');
+                  }}
+                >
+                  {difficulty.name}
+                </button>
+              ))}
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('mode_select')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {/* Classic single player length selection */}
+          {menuState === 'single_length_classic' && (
             <>
               <h3 style={styles.subtitle}>Select Game Length</h3>
               {Object.values(GAME_LENGTHS).map((option) => (
@@ -831,14 +1063,40 @@ export default function App() {
               ))}
               <button
                 style={{...styles.startButton, backgroundColor: '#f44336'}}
-                onClick={() => setMenuState('mode_select')}
+                onClick={() => setMenuState('ai_difficulty_classic')}
               >
                 Back
               </button>
             </>
           )}
 
-          {menuState === 'local_multi_select' && (
+          {/* Power-up single player length selection */}
+          {menuState === 'single_length_powerup' && (
+            <>
+              <h3 style={styles.subtitle}>Select Game Length</h3>
+              {Object.values(GAME_LENGTHS).map((option) => (
+                <button
+                  key={option.points}
+                  style={styles.startButton}
+                  onClick={() => {
+                    startGame(option.points, GAME_MODES.POWER_UP);
+                    setGameMode(GAME_MODES.SINGLE);
+                  }}
+                >
+                  {option.name}
+                </button>
+              ))}
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('ai_difficulty_powerup')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {/* Classic local multiplayer length selection */}
+          {menuState === 'local_multi_classic' && (
             <>
               <h3 style={styles.subtitle}>Select Game Length</h3>
               {Object.values(GAME_LENGTHS).map((option) => (
@@ -846,6 +1104,124 @@ export default function App() {
                   key={option.points}
                   style={styles.startButton}
                   onClick={() => startGame(option.points, GAME_MODES.LOCAL_MULTI)}
+                >
+                  {option.name}
+                </button>
+              ))}
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('local_multi_select')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {/* Power-up local multiplayer length selection */}
+          {menuState === 'local_multi_powerup' && (
+            <>
+              <h3 style={styles.subtitle}>Select Game Length</h3>
+              <div style={{ color: '#fff', marginBottom: '20px', textAlign: 'left' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#44ff44', fontWeight: 'bold' }}>● Giant Paddle</span>
+                  <br/>Makes your paddle twice as large
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 'bold' }}>● Speed Up</span>
+                  <br/>Increases your paddle movement speed by 50%
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#4444ff', fontWeight: 'bold' }}>● Slow Opponent</span>
+                  <br/>Reduces opponent's paddle speed by 50%
+                </div>
+                <div style={{ marginBottom: '20px' }}>
+                  <span style={{ color: '#ff44ff', fontWeight: 'bold' }}>● Shrink Opponent</span>
+                  <br/>Reduces opponent's paddle size by half
+                </div>
+              </div>
+              {Object.values(GAME_LENGTHS).map((option) => (
+                <button
+                  key={option.points}
+                  style={styles.startButton}
+                  onClick={() => {
+                    startGame(option.points, GAME_MODES.POWER_UP);
+                    setGameMode(GAME_MODES.LOCAL_MULTI);
+                  }}
+                >
+                  {option.name}
+                </button>
+              ))}
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('local_multi_select')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {menuState === 'ai_showmatch_select' && (
+            <>
+              <h2>AI Showmatch</h2>
+              <p style={{ color: '#fff', marginBottom: '20px' }}>
+                Watch two AI players compete!
+              </p>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  startGame(GAME_LENGTHS.LONG.points, GAME_MODES.AI_SHOWMATCH);
+                }}
+              >
+                Classic Showmatch
+              </button>
+              <button
+                style={styles.startButton}
+                onClick={() => {
+                  startGame(GAME_LENGTHS.LONG.points, GAME_MODES.POWER_UP);
+                  setGameMode(GAME_MODES.AI_SHOWMATCH);
+                }}
+              >
+                Showmatch with Power-ups ✨
+              </button>
+              <button
+                style={{...styles.startButton, backgroundColor: '#f44336'}}
+                onClick={() => setMenuState('main')}
+              >
+                Back
+              </button>
+            </>
+          )}
+
+          {menuState === 'power_up_select' && (
+            <>
+              <h2>Power-up Mode</h2>
+              <p style={{ color: '#fff', marginBottom: '20px' }}>
+                Collect power-ups to gain advantages! Features:
+              </p>
+              <div style={{ color: '#fff', marginBottom: '20px', textAlign: 'left' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#44ff44', fontWeight: 'bold' }}>● Giant Paddle</span>
+                  <br/>Makes your paddle twice as large
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#ff4444', fontWeight: 'bold' }}>● Speed Up</span>
+                  <br/>Increases your paddle movement speed by 50%
+                </div>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#4444ff', fontWeight: 'bold' }}>● Slow Opponent</span>
+                  <br/>Reduces opponent's paddle speed by 50%
+                </div>
+                <div style={{ marginBottom: '20px' }}>
+                  <span style={{ color: '#ff44ff', fontWeight: 'bold' }}>● Shrink Opponent</span>
+                  <br/>Reduces opponent's paddle size by half
+                </div>
+              </div>
+              <h3 style={styles.subtitle}>Select Game Length</h3>
+              {Object.values(GAME_LENGTHS).map((option) => (
+                <button
+                  key={option.points}
+                  style={styles.startButton}
+                  onClick={() => startGame(option.points, GAME_MODES.POWER_UP)}
                 >
                   {option.name}
                 </button>
@@ -901,28 +1277,65 @@ export default function App() {
               {score.player >= winningScore - 1 && 
                score.ai >= winningScore - 1 && 
                Math.abs(score.player - score.ai) < MIN_WIN_MARGIN && (
-                <div style={styles.overtime}>OVERTIME!</div>
+                <div style={styles.overtime}>TIE BREAKER!</div>
               )}
               <div style={styles.score}>
                 {score.ai}
               </div>
             </div>
 
-            {/* Player Paddle */}
+            {/* Add power-up indicators */}
+            {gameMode === GAME_MODES.POWER_UP && (
+              <>
+                {activePowerUps.player.length > 0 && (
+                  <div style={{ ...styles.powerUpIndicator, left: '10px' }}>
+                    {activePowerUps.player.map(powerUp => (
+                      <div key={powerUp.id} style={{ color: POWER_UPS[powerUp.type].color }}>
+                        {POWER_UPS[powerUp.type].name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {activePowerUps.ai.length > 0 && (
+                  <div style={{ ...styles.powerUpIndicator, right: '10px' }}>
+                    {activePowerUps.ai.map(powerUp => (
+                      <div key={powerUp.id} style={{ color: POWER_UPS[powerUp.type].color }}>
+                        {POWER_UPS[powerUp.type].name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Add visible power-up */}
+            {visiblePowerUp && (
+              <div
+                style={{
+                  ...styles.powerUp,
+                  left: visiblePowerUp.x,
+                  top: visiblePowerUp.y,
+                  backgroundColor: POWER_UPS[visiblePowerUp.type].color
+                }}
+              />
+            )}
+
+            {/* Modify paddles to use power-up effects */}
             <div
               style={{
                 ...styles.paddle,
                 left: 0,
-                top: playerPosition - dimensions.current.PADDLE_HEIGHT / 2,
+                top: playerPosition - (dimensions.current.PADDLE_HEIGHT * getPowerUpEffects('player').paddleHeight) / 2,
+                height: dimensions.current.PADDLE_HEIGHT * getPowerUpEffects('player').paddleHeight
               }}
             />
 
-            {/* AI Paddle */}
             <div
               style={{
                 ...styles.paddle,
                 right: 0,
-                top: aiPosition - dimensions.current.PADDLE_HEIGHT / 2,
+                top: aiPosition - (dimensions.current.PADDLE_HEIGHT * getPowerUpEffects('ai').paddleHeight) / 2,
+                height: dimensions.current.PADDLE_HEIGHT * getPowerUpEffects('ai').paddleHeight
               }}
             />
 
@@ -1027,7 +1440,7 @@ export default function App() {
             <p>AI Assistant by Cursor</p>
             <p>Inspired by the classic Pong game</p>
             <p>Built with React</p>
-            <p>Version 2.3</p>
+            <p>Version 2.4</p>
           </div>
           <button
             style={styles.button}
